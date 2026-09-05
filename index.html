@@ -232,12 +232,16 @@ function sirenOff(){
 
 /* ============================== input ============================== */
 const IN={x:0,y:0,boost:0,rev:0};
+let inputKind='key';       // 'key' | 'pad' | 'ps' -- whichever was used last
+function padKind(p){
+  return /dualsense|dualshock|playstation|sony|054c/i.test(p.id||'') ? 'ps' : 'pad';
+}
 const keys=Object.create(null);
 let prevBtn=[];
 let started=false;
 
 addEventListener('keydown',e=>{
-  keys[e.code]=true; onAnyInput();
+  keys[e.code]=true; inputKind='key'; onAnyInput();
   if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
   if(e.code==='Space') doHorn();
   if(e.code==='KeyV') changeVehicle();
@@ -263,8 +267,9 @@ function readPads(){
   const pressed=[];
   for(const p of pads){
     if(!p) continue;
+    let act=false;
     const ax=p.axes[0]||0, ay=p.axes[1]||0;
-    if(Math.hypot(ax,ay)>DEADZONE){ x+=ax; y+=ay; }
+    if(Math.hypot(ax,ay)>DEADZONE){ x+=ax; y+=ay; act=true; }
     const b=p.buttons;
     const down=i=>b[i]&&(b[i].pressed||b[i].value>0.5);
     if(down(14)) x-=1;
@@ -273,7 +278,9 @@ function readPads(){
     if(down(13)) y+=1;
     if(b[7]) boost=Math.max(boost,b[7].value||(b[7].pressed?1:0));
     if(b[6]) rev  =Math.max(rev,  b[6].value||(b[6].pressed?1:0));
-    for(let i=0;i<b.length;i++) if(down(i)) pressed[i]=true;
+    for(let i=0;i<b.length;i++) if(down(i)){ pressed[i]=true; act=true; }
+    if(boost>0.2||rev>0.2) act=true;
+    if(act) inputKind=padKind(p);   // hints follow the device in your hands
   }
   const hit=i=>pressed[i]&&!prevBtn[i];
   if(hit(0)) doHorn();
@@ -958,34 +965,82 @@ function drawVehicle(){
 }
 
 /* ------------------------------ HUD ------------------------------ */
-function btn(x,y,col,label,txt,r){
-  g.fillStyle='rgba(0,0,0,.28)';
-  g.beginPath(); g.arc(x+2,y+2,r,0,6.2832); g.fill();
-  g.fillStyle=col; g.beginPath(); g.arc(x,y,r,0,6.2832); g.fill();
-  g.fillStyle='#fff'; g.font='700 '+Math.round(r*1.15)+'px system-ui,sans-serif';
-  g.textAlign='center'; g.textBaseline='middle';
-  g.fillText(label,x,y+1);
-  g.textAlign='left';
-  g.font='700 '+Math.round(r*1.0)+'px system-ui,sans-serif';
-  g.fillStyle='rgba(255,255,255,.92)';
-  g.strokeStyle='rgba(0,0,0,.45)'; g.lineWidth=Math.max(2,r*0.22);
-  g.strokeText(txt,x+r*1.5,y+1); g.fillText(txt,x+r*1.5,y+1);
+/* Button hints match whatever is being used. Chrome only reveals gamepads
+   after a button press, so this starts on keyboard and flips the instant a
+   controller is touched -- which on the Xbox is before the HUD is ever seen. */
+const HINTS={
+  pad:{ horn :{c:'#4caf50',t:'A'},        veh  :{c:'#2e6fd9',t:'X'},
+        light:{c:'#f0c419',t:'Y'},        siren:{c:'#6b7280',t:'LB'} },
+  ps :{ horn :{c:'#7b6ce0',shape:'cross'},veh  :{c:'#e06aa8',shape:'square'},
+        light:{c:'#3fb87a',shape:'tri'},  siren:{c:'#6b7280',t:'L1'} },
+  key:{ horn :{c:'#41464e',t:'SPACE',key:1}, veh  :{c:'#41464e',t:'V',key:1},
+        light:{c:'#41464e',t:'L',key:1},     siren:{c:'#41464e',t:'K',key:1} },
+};
+
+// PlayStation face buttons, drawn rather than typed so no font can drop them
+function psShape(kind,r){
+  const s=r*0.5;
+  g.lineWidth=Math.max(2,r*0.2); g.strokeStyle='#fff'; g.lineJoin='round';
+  g.beginPath();
+  if(kind==='cross'){ g.moveTo(-s,-s); g.lineTo(s,s); g.moveTo(s,-s); g.lineTo(-s,s); }
+  else if(kind==='square'){ g.rect(-s,-s,s*2,s*2); }
+  else { g.moveTo(0,-s*1.15); g.lineTo(s,s*0.7); g.lineTo(-s,s*0.7); g.closePath(); }
+  g.stroke();
+}
+
+// width of the glyph badge for one hint, at radius r
+function glyphW(it,r){
+  g.font='700 '+Math.round(r*0.95)+'px system-ui,sans-serif';
+  return it.key ? Math.max(r*2, g.measureText(it.t).width+r*1.2) : r*2;
+}
+
+function drawGlyph(x,y,r,it){
+  const w=glyphW(it,r), rad=it.key?r*0.42:r;
+  g.fillStyle='rgba(0,0,0,.30)'; roundRect(g,x+2,y-r+2,w,r*2,rad); g.fill();
+  g.fillStyle=it.c;              roundRect(g,x,  y-r,  w,r*2,rad); g.fill();
+  if(it.shape){ g.save(); g.translate(x+w/2,y); psShape(it.shape,r); g.restore(); }
+  else{
+    g.fillStyle='#fff';
+    g.font='700 '+Math.round(r*(it.key?0.95:1.05))+'px system-ui,sans-serif';
+    g.textAlign='center'; g.textBaseline='middle';
+    g.fillText(it.t,x+w/2,y+1);
+  }
+  return w;
 }
 
 function drawHUD(){
   const inset=Math.min(cw,ch)*0.055;        // TV overscan safe area
-  const r=Math.max(12,Math.min(cw,ch)*0.020);
-  const y=ch-inset-r;
+  const H=HINTS[inputKind]||HINTS.pad;
   const items=[
-    ['#4caf50','A','HONK'],
-    ['#2e6fd9','X',V.name],
-    ['#f0c419','Y',truck.lights?'LIGHTS ON':'LIGHTS'],
-    ['#6b7280','LB',truck.siren?'SIREN ON':'SIREN'],
+    [H.horn,  'HONK'],
+    [H.veh,   V.name],
+    [H.light, truck.lights?'LIGHTS ON':'LIGHTS'],
+    [H.siren, truck.siren?'SIREN ON':'SIREN'],
   ];
-  let x=inset+r;
-  for(const it of items){
-    btn(x,y,it[0],it[1],it[2],r);
-    x+=r*1.5+g.measureText(it[2]).width+r*1.7;   // btn leaves the label font set
+  let r=Math.max(12,Math.min(cw,ch)*0.020);
+
+  // measure, and shrink if this device's labels are too wide for the screen
+  const rowW=rr=>{
+    let t=0;
+    for(let i=0;i<items.length;i++){
+      t+=glyphW(items[i][0],rr)+rr*0.45;
+      g.font='700 '+Math.round(rr)+'px system-ui,sans-serif';
+      t+=g.measureText(items[i][1]).width+rr*1.25;
+    }
+    return t;
+  };
+  const avail=cw-inset*2, total=rowW(r);
+  if(total>avail) r=Math.max(8,r*avail/total);
+
+  let x=inset, y=ch-inset-r;
+  for(let i=0;i<items.length;i++){
+    x+=drawGlyph(x,y,r,items[i][0])+r*0.45;
+    g.font='700 '+Math.round(r)+'px system-ui,sans-serif';
+    g.textAlign='left'; g.textBaseline='middle';
+    g.fillStyle='rgba(255,255,255,.94)';
+    g.strokeStyle='rgba(0,0,0,.45)'; g.lineWidth=Math.max(2,r*0.22);
+    g.strokeText(items[i][1],x,y+1); g.fillText(items[i][1],x,y+1);
+    x+=g.measureText(items[i][1]).width+r*1.25;
   }
 
   if(banner>0){

@@ -26,6 +26,13 @@ Keyboard, for working on it on the Mac: arrows/WASD to drive, Space honk,
 **V** change vehicle (or **1**–**5** to pick one directly), **L** lights,
 **K** siren.
 
+The on-screen hints follow whatever is actually in your hands: keycaps on a PC,
+Xbox glyphs on a controller, PlayStation shapes on a DualSense. Chrome only
+reveals gamepads after a button press, so it starts on keyboard and flips the
+instant a controller is touched -- on the Xbox that happens before the HUD is
+ever seen. An idle connected pad does not steal the hints back from the
+keyboard; only actual input switches them.
+
 ## Running it on the Xbox
 
 1. On the Xbox, open the **Microsoft Edge** app.
