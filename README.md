@@ -20,6 +20,7 @@ works from the HTML file alone.
 | **X** | Change vehicle |
 | **Y** | Headlights — toggles the town between day and night |
 | **LB** / **RB** | Siren (flashing lights + sound) |
+| Left / right, then **A** | Answer a letter-game question. **Y** repeats it, **B** drives on. |
 | RT | Go a bit faster |
 | LT | Reverse |
 
@@ -135,6 +136,37 @@ supplied siren that took the jump at the join from 1.50 down to 0.07.
 To give the recorded horn to just one vehicle instead of all of them, add a
 `hornSample:'horn'` key to that vehicle and have `doHorn()` check it, the same
 way `sirenSample` works.
+
+## Letter games
+
+Purple **?** pads are scattered around the town, roughly one every five blocks.
+Drive onto one and it asks a question. The world pauses while it is up.
+
+Questions come in two shapes, picked at random:
+
+- **Picture to letter** — shows a pond and asks what letter it starts with.
+- **Letter to picture** — shows a **C** and asks which of three pictures starts
+  with it.
+
+Everything asked about is drawn from artwork already in the world — cow, duck,
+chicken, tree, ball, cone, bird, car, truck, ambulance, house, barn, pond — so a
+child who cannot read yet still knows what they are looking at. Three choices,
+always one right answer and two distractors with different first letters.
+
+**There is no losing.** A wrong pick wobbles the card, makes a soft noise and
+asks again. Nothing is scored, nothing is counted, and the pad can be driven
+over as many times as they like — it re-arms once you have driven off it, and
+picks a fresh question each time.
+
+Questions are read aloud through the browser's speech synthesis, which matters a
+lot before a child can read. **Y** (or **R** on a keyboard) repeats the
+question. If speech is unavailable the game carries on silently; turn it off
+deliberately with the **TALKING** row in settings.
+
+Add more things to ask about by appending to `QUIZ_ITEMS`: a word, a scale `s`
+to normalise its size, and an `art()` that draws it centred on the origin at
+roughly 30 units. `propArt()`, `vehArt()`, `boxArt()` and `pondArt()` are there
+to reuse the existing drawings.
 
 ## The world
 

@@ -197,6 +197,9 @@ const SFX={
            noiseBurst(0.14,'lowpass',700,0.09);},
   splash(){noiseBurst(0.3,'bandpass',1200,0.12);},
   click(){tone({type:'square',f0:1200,f1:1600,dur:0.06,vol:0.07});},
+  yay(){ [523,659,784,1047].forEach((f,i)=>
+           tone({type:'triangle',f0:f,dur:0.3,vol:0.12,delay:i*0.085})); },
+  nope(){ tone({type:'sine',f0:330,f1:220,dur:0.24,vol:0.10}); },
 };
 
 function sirenOn(){
@@ -261,6 +264,14 @@ let started=false;
 addEventListener('keydown',e=>{
   keys[e.code]=true; inputKind='key'; onAnyInput();
   if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
+  if(quiz){
+    if(e.code==='ArrowLeft')  moveQuiz(-1);
+    if(e.code==='ArrowRight') moveQuiz(1);
+    if(e.code==='Enter'||e.code==='Space') answerQuiz();
+    if(e.code==='KeyR') repeatQuiz();
+    if(e.code==='Escape'||e.code==='KeyO') closeQuiz();
+    return;
+  }
   if(settingsOpen){
     if(e.code==='ArrowUp')    moveSettings(-1);
     if(e.code==='ArrowDown')  moveSettings(1);
@@ -310,7 +321,13 @@ function readPads(){
     if(act) inputKind=padKind(p);   // hints follow the device in your hands
   }
   const hit=i=>pressed[i]&&!prevBtn[i];
-  if(settingsOpen){
+  if(quiz){
+    if(hit(14)) moveQuiz(-1);
+    if(hit(15)) moveQuiz(1);
+    if(hit(0)) answerQuiz();
+    if(hit(3)) repeatQuiz();
+    if(hit(1)||hit(8)||hit(9)) closeQuiz();
+  }else if(settingsOpen){
     if(hit(12)) moveSettings(-1);
     if(hit(13)) moveSettings(1);
     if(hit(14)) cycleSetting(settingsRow,-1);
@@ -468,6 +485,13 @@ function genCell(i,j){
     if(R()<0.5) add('cone', i*BLOCK+f(-ROAD_W*0.34,ROAD_W*0.34), f(j*BLOCK,(j+1)*BLOCK));
     else        add('cone', f(i*BLOCK,(i+1)*BLOCK), j*BLOCK+f(-ROAD_W*0.34,ROAD_W*0.34));
   }
+  // a question stop, roughly every third or fourth block
+  if(R()<0.28){
+    let qx=0,qy=0,ok=false;
+    for(let n=0;n<30&&!ok;n++){ qx=f(x0,x1); qy=f(y0,y1); ok=free(qx,qy,34); }
+    if(ok) cell.props.push({type:'quiz',x:qx,y:qy,vx:0,vy:0,rot:0,spin:0,
+      react:0,cool:0,fly:0,r:26,armed:true});
+  }
   return cell;
 }
 
@@ -594,6 +618,11 @@ function update(dt){
 
       const dx=p.x-truck.x, dy=p.y-truck.y;
       const d=Math.hypot(dx,dy), reach=p.r+V.r;
+      if(p.type==='quiz'){
+        if(d<reach){ if(p.armed){ p.armed=false; openQuiz(); } }
+        else if(d>reach+60) p.armed=true;   // re-arms once you have driven off it
+        continue;
+      }
       if(d<reach&&d>0.001&&p.cool<=0){
         const def=PROP[p.type];
         const push=(60+Math.abs(truck.v))*def.kick;
@@ -760,6 +789,13 @@ function draw(){
       rad.addColorStop(1,'rgba(255,225,150,0)');
       g.fillStyle=rad; g.beginPath(); g.arc(l.x,l.y,130,0,6.2832); g.fill();
     }
+    for(const cell of active) for(const p of cell.props){
+      if(p.type!=='quiz'||!vis(p.x,p.y,120)) continue;
+      const q=g.createRadialGradient(p.x,p.y,0,p.x,p.y,110);
+      q.addColorStop(0,'rgba(170,130,255,'+(0.6*night).toFixed(3)+')');
+      q.addColorStop(1,'rgba(170,130,255,0)');
+      g.fillStyle=q; g.beginPath(); g.arc(p.x,p.y,110,0,6.2832); g.fill();
+    }
     drawBeams(night);
     g.globalCompositeOperation='source-over';
     for(const cell of active){
@@ -772,6 +808,7 @@ function draw(){
   g.restore();
 
   drawHUD();
+  if(quiz) drawQuiz();
   if(settingsOpen) drawSettings();
 }
 
@@ -802,13 +839,20 @@ function drawProp(p){
     g.globalAlpha=clamp(1-t*0.55,0.25,1);
     g.translate(0,-h); g.scale(1+h/90,1+h/90);
   }
-  g.fillStyle='rgba(0,0,0,.16)';
-  g.beginPath(); g.ellipse(3,4,p.r*0.95,p.r*0.8,0,0,6.2832); g.fill();
+  if(p.type!=='quiz'){
+    g.fillStyle='rgba(0,0,0,.16)';
+    g.beginPath(); g.ellipse(3,4,p.r*0.95,p.r*0.8,0,0,6.2832); g.fill();
+  }
   g.rotate(p.rot);
   const pop=1+rc*0.22;
   g.scale(pop,pop);
+  propArt(p.type,rc,p);
+  g.restore();
+}
 
-  switch(p.type){
+// the artwork alone, centred on the origin, so the quiz can draw it too
+function propArt(type,rc,p){
+  switch(type){
     case 'cow':
       g.fillStyle='#fbfbf7'; g.beginPath(); g.ellipse(0,0,24,17,0,0,6.2832); g.fill();
       g.fillStyle='#33302e';
@@ -866,15 +910,28 @@ function drawProp(p){
     case 'bird':{
       g.fillStyle='#5aa9e6'; g.beginPath(); g.ellipse(0,0,10,8,0,0,6.2832); g.fill();
       g.fillStyle='#8fcbf5';
-      const w=p.fly>0?Math.sin(p.fly*26)*7:2;
+      const w=(p&&p.fly>0)?Math.sin(p.fly*26)*7:2;
       g.beginPath(); g.ellipse(-1,-8,8,3+Math.abs(w)*0.5,0.2,0,6.2832); g.fill();
       g.beginPath(); g.ellipse(-1,8,8,3+Math.abs(w)*0.5,-0.2,0,6.2832); g.fill();
       g.fillStyle='#f5a623'; g.beginPath();
       g.moveTo(9,-1.5); g.lineTo(15,0); g.lineTo(9,1.5); g.closePath(); g.fill();
       break;
     }
+    case 'quiz':{
+      const t=performance.now()/560, s=1+Math.sin(t)*0.07;
+      g.scale(s,s);
+      g.fillStyle='rgba(0,0,0,.16)';
+      g.beginPath(); g.ellipse(3,5,24,20,0,0,6.2832); g.fill();
+      g.fillStyle='#7c4ddb'; g.beginPath(); g.arc(0,0,25,0,6.2832); g.fill();
+      g.fillStyle='#a78bfa'; g.beginPath(); g.arc(0,0,19,0,6.2832); g.fill();
+      g.fillStyle='#fff';
+      g.font='800 28px system-ui,sans-serif';
+      g.textAlign='center'; g.textBaseline='middle';
+      g.fillText('?',0,2);
+      g.textAlign='left'; g.textBaseline='alphabetic';
+      break;
+    }
   }
-  g.restore();
 }
 
 /* ============================ vehicles ============================
@@ -1109,6 +1166,224 @@ function drawHUD(){
   g.textAlign='left'; g.textBaseline='alphabetic';
 }
 
+/* =========================== letter games ==========================
+   Question stops are the purple "?" pads dotted around the town. Driving
+   onto one asks about something the child already knows by sight from the
+   world itself, so it works before they can read. Two shapes of question:
+   picture -> letter, and letter -> picture. Never a fail state: a wrong
+   pick wobbles and asks again. */
+
+let voiceOn=true;
+try{ if(localStorage.getItem('roundtown.voice')==='off') voiceOn=false; }catch(_){}
+
+function say(text){
+  if(!voiceOn) return;
+  try{
+    if(!('speechSynthesis' in window)) return;   // silently fine without it
+    speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(text);
+    u.rate=0.85; u.pitch=1.2;
+    speechSynthesis.speak(u);
+  }catch(_){}
+}
+
+function vehArt(id){
+  const v=VEHICLES.find(x=>x.id===id); if(!v) return;
+  g.save(); g.rotate(-Math.PI/2);
+  g.fillStyle='rgba(0,0,0,.18)';
+  roundRect(g,-v.len/2+2,-v.wid/2+2,v.len,v.wid,9); g.fill();
+  v.draw(g);
+  g.fillStyle='#ffe9a8';
+  g.beginPath(); g.arc(v.hx,-v.hy,3.6,0,6.2832); g.fill();
+  g.beginPath(); g.arc(v.hx, v.hy,3.6,0,6.2832); g.fill();
+  g.restore();
+}
+function boxArt(col,roof){
+  g.fillStyle='rgba(0,0,0,.18)'; roundRect(g,-24,-19,56,48,8); g.fill();
+  g.fillStyle=col;              roundRect(g,-28,-24,56,48,8); g.fill();
+  g.fillStyle=roof;             g.fillRect(-22,-4,44,8);
+}
+function pondArt(){
+  g.fillStyle='#f0dda4'; g.beginPath(); g.arc(0,0,30,0,6.2832); g.fill();
+  g.fillStyle='#54c4e6'; g.beginPath(); g.arc(0,0,24,0,6.2832); g.fill();
+  g.strokeStyle='rgba(255,255,255,.55)'; g.lineWidth=3;
+  g.beginPath(); g.arc(0,0,15,0.6,2.1); g.stroke();
+}
+
+const QUIZ_ITEMS=[
+  {w:'BALL',      s:1.7, art:()=>propArt('ball',0)},
+  {w:'COW',       s:1.2, art:()=>propArt('cow',0)},
+  {w:'DUCK',      s:2.3, art:()=>propArt('duck',0)},
+  {w:'TREE',      s:1.1, art:()=>propArt('tree',0)},
+  {w:'BIRD',      s:2.3, art:()=>propArt('bird',0)},
+  {w:'CONE',      s:2.1, art:()=>propArt('cone',0)},
+  {w:'CHICKEN',   s:2.3, art:()=>propArt('chicken',0)},
+  {w:'CAR',       s:1.2, art:()=>vehArt('car')},
+  {w:'TRUCK',     s:1.0, art:()=>vehArt('truck')},
+  {w:'AMBULANCE', s:1.0, art:()=>vehArt('ambulance')},
+  {w:'HOUSE',     s:1.1, art:()=>boxArt('#69b8d8','#4e93ad')},
+  {w:'BARN',      s:1.1, art:()=>boxArt('#c9412f','#9c3123')},
+  {w:'POND',      s:1.0, art:()=>pondArt()},
+];
+const QUIZ_LETTERS='ABCDEFGHIJKLMNOPRSTUW';
+const QUIZ_FOOT={
+  pad:'D-PAD  CHOOSE       A  PICK       Y  SAY AGAIN       B  DRIVE ON',
+  ps :'D-PAD  CHOOSE       X  PICK       \u25b3  SAY AGAIN       O  DRIVE ON',
+  key:'ARROWS  CHOOSE       ENTER  PICK       R  SAY AGAIN       ESC  DRIVE ON',
+};
+
+let quiz=null;
+const conf=[];
+const rpick=a=>a[Math.floor(rnd()*a.length)];
+
+function openQuiz(){
+  if(quiz||settingsOpen) return;
+  const mode=rnd()<0.5?'letter':'picture';
+  const item=rpick(QUIZ_ITEMS), L=item.w[0];
+  let choices;
+  if(mode==='letter'){
+    const others=[];
+    while(others.length<2){
+      const c=rpick(QUIZ_LETTERS);
+      if(c!==L&&others.indexOf(c)<0) others.push(c);
+    }
+    choices=[{letter:L,correct:true},{letter:others[0]},{letter:others[1]}];
+  }else{
+    const others=[];
+    for(let n=0;n<300&&others.length<2;n++){
+      const it=rpick(QUIZ_ITEMS);
+      if(it.w[0]!==L&&!others.some(o=>o.w[0]===it.w[0])) others.push(it);
+    }
+    choices=[{item,correct:true},{item:others[0]},{item:others[1]}];
+  }
+  for(let i=choices.length-1;i>0;i--){
+    const j=Math.floor(rnd()*(i+1));
+    const t=choices[i]; choices[i]=choices[j]; choices[j]=t;
+  }
+  quiz={mode,item,letter:L,choices,sel:0,done:false,doneT:0,shake:0,wrong:-1};
+  conf.length=0;
+  SFX.click();
+  say(mode==='letter' ? 'What letter does '+item.w.toLowerCase()+' start with?'
+                      : 'Which one starts with the letter '+L+'?');
+}
+function closeQuiz(){ quiz=null; conf.length=0; }
+function repeatQuiz(){
+  if(!quiz||quiz.done) return;
+  say(quiz.mode==='letter'
+    ? 'What letter does '+quiz.item.w.toLowerCase()+' start with?'
+    : 'Which one starts with the letter '+quiz.letter+'?');
+}
+function moveQuiz(d){
+  if(!quiz||quiz.done) return;
+  quiz.sel=(quiz.sel+d+quiz.choices.length)%quiz.choices.length;
+  SFX.click();
+}
+function answerQuiz(){
+  if(!quiz||quiz.done) return;
+  const c=quiz.choices[quiz.sel];
+  if(c.correct){
+    quiz.done=true; quiz.doneT=2.6; quiz.wrong=-1;
+    SFX.yay(); confetti();
+    const word=quiz.mode==='letter'?quiz.item.w:c.item.w;
+    say('Yes! '+word.toLowerCase()+' starts with '+quiz.letter);
+  }else{
+    quiz.shake=0.5; quiz.wrong=quiz.sel;
+    SFX.nope(); say('Try again');
+  }
+}
+function confetti(){
+  const cols=['#ff5d73','#ffd166','#4ecdc4','#8b5cf6','#6cc24a','#ff8a1f'];
+  for(let i=0;i<80;i++) conf.push({
+    x:cw/2+rr(-cw*0.16,cw*0.16), y:ch*0.42,
+    vx:rr(-300,300), vy:rr(-620,-160), r:rr(5,11),
+    c:rpick(cols), rot:rr(0,6.28), spin:rr(-9,9), life:rr(1.3,2.4), max:2.4});
+}
+function tickQuiz(dt){
+  if(quiz&&quiz.shake>0) quiz.shake=Math.max(0,quiz.shake-dt);
+  for(let i=conf.length-1;i>=0;i--){
+    const p=conf[i];
+    p.life-=dt;
+    if(p.life<=0){ conf.splice(i,1); continue; }
+    p.vy+=950*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.rot+=p.spin*dt;
+  }
+  if(quiz&&quiz.done){ quiz.doneT-=dt; if(quiz.doneT<=0) closeQuiz(); }
+}
+
+function drawQuiz(){
+  const u=Math.min(cw,ch);
+  g.fillStyle='rgba(8,16,38,.84)'; g.fillRect(0,0,cw,ch);
+  const w=Math.min(cw*0.9,940), h=Math.min(ch*0.9,u*1.05);
+  const x=(cw-w)/2, y=(ch-h)/2;
+  g.fillStyle='#fffdf7'; roundRect(g,x,y,w,h,u*0.04); g.fill();
+
+  g.textAlign='center'; g.textBaseline='middle';
+  g.fillStyle='#43506b';
+  g.font='800 '+Math.round(h*0.058)+'px system-ui,sans-serif';
+  g.fillText(quiz.mode==='letter'?'WHAT LETTER DOES IT START WITH?'
+                                 :'WHICH ONE STARTS WITH', cw/2, y+h*0.095);
+
+  g.save();
+  g.translate(cw/2, y+h*(quiz.mode==='letter'?0.32:0.38));
+  if(quiz.mode==='letter'){
+    const k=(h*0.15)/30*quiz.item.s;
+    g.save(); g.scale(k,k); quiz.item.art(); g.restore();
+  }else{
+    g.fillStyle='#7c4ddb';
+    g.font='800 '+Math.round(h*0.26)+'px system-ui,sans-serif';
+    g.textAlign='center'; g.textBaseline='middle';
+    g.fillText(quiz.letter,0,0);
+  }
+  g.restore();
+
+  if(quiz.mode==='letter'){
+    g.textAlign='center'; g.textBaseline='middle';
+    g.fillStyle='#7c4ddb';
+    g.font='800 '+Math.round(h*0.082)+'px system-ui,sans-serif';
+    g.fillText(quiz.item.w, cw/2, y+h*0.52);
+  }
+
+  const cardW=w*0.25, cardH=h*0.235, gap=w*0.045;
+  const total=cardW*3+gap*2, sx=x+(w-total)/2, cy=y+h*0.74;
+  quiz.choices.forEach((c,i)=>{
+    const sel=i===quiz.sel, good=quiz.done&&c.correct;
+    const bad=quiz.wrong===i&&quiz.shake>0;
+    const ox=bad?Math.sin(quiz.shake*52)*9:0;
+    g.save();
+    g.translate(sx+i*(cardW+gap)+cardW/2+ox, cy);
+    g.scale(sel?1.06:1, sel?1.06:1);
+    g.fillStyle=good?'#d7f5dc':(bad?'#fbdadd':'#eef2f8');
+    roundRect(g,-cardW/2,-cardH/2,cardW,cardH,u*0.028); g.fill();
+    g.strokeStyle=good?'#3aa757':(sel?'#1d64c4':'#d6dce5');
+    g.lineWidth=(sel||good)?u*0.009:u*0.004;
+    roundRect(g,-cardW/2,-cardH/2,cardW,cardH,u*0.028); g.stroke();
+    if(quiz.mode==='letter'){
+      g.fillStyle=good?'#2c8a48':'#33405a';
+      g.font='800 '+Math.round(cardH*0.58)+'px system-ui,sans-serif';
+      g.textAlign='center'; g.textBaseline='middle';
+      g.fillText(c.letter,0,2);
+    }else{
+      const k=(cardH*0.3)/30*c.item.s;
+      g.save(); g.scale(k,k); c.item.art(); g.restore();
+    }
+    g.restore();
+  });
+
+  for(const p of conf){
+    g.save();
+    g.globalAlpha=clamp(p.life/p.max,0,1);
+    g.translate(p.x,p.y); g.rotate(p.rot);
+    g.fillStyle=p.c; g.fillRect(-p.r/2,-p.r/2,p.r,p.r*1.7);
+    g.restore();
+  }
+  g.globalAlpha=1;
+
+  g.fillStyle='#9aa4b3';
+  g.font='700 '+Math.round(u*0.026)+'px system-ui,sans-serif';
+  g.textAlign='center'; g.textBaseline='middle';
+  g.fillText(QUIZ_FOOT[inputKind]||QUIZ_FOOT.pad, cw/2, y+h-u*0.05);
+  g.textAlign='left'; g.textBaseline='alphabetic';
+}
+
 /* ============================ settings ============================
    For the grown-up, not the child: opened with View/Menu on a controller or
    Esc on a keyboard, and it pauses the world while it is up. Add a row here
@@ -1122,6 +1397,17 @@ const SETTINGS=[
     ],
     get:()=>driveMode,
     set:v=>{ driveMode=v; try{ localStorage.setItem('roundtown.drive',v); }catch(_){} },
+  },
+  {
+    id:'voice', label:'TALKING',
+    options:[
+      {v:'on',  name:'ON',  hint:'Reads the letter questions out loud.'},
+      {v:'off', name:'OFF', hint:'Questions are shown but not spoken.'},
+    ],
+    get:()=>voiceOn?'on':'off',
+    set:v=>{ voiceOn=(v==='on');
+             try{ localStorage.setItem('roundtown.voice',v); }catch(_){}
+             if(!voiceOn&&window.speechSynthesis) try{ speechSynthesis.cancel(); }catch(_){} },
   },
 ];
 
@@ -1203,8 +1489,9 @@ function frame(now){
   const dt=Math.min(0.05,(now-last)/1000);
   last=now;
   refreshCells();
-  pollInput();                               // also on the start screen and in settings
-  if(started&&!settingsOpen) update(dt);     // settings pauses the world
+  pollInput();                               // also on the start screen and in menus
+  if(quiz) tickQuiz(dt);
+  if(started&&!settingsOpen&&!quiz) update(dt);   // menus pause the world
   draw();
   requestAnimationFrame(frame);
 }
