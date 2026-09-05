@@ -1232,13 +1232,16 @@ const QUIZ_FOOT={
   key:'ARROWS  CHOOSE       ENTER  PICK       R  SAY AGAIN       ESC  DRIVE ON',
 };
 
+let quizMode='letters';     // 'letters' = always picture -> letter (easier)
+try{ if(localStorage.getItem('roundtown.quiz')==='mixed') quizMode='mixed'; }catch(_){}
+
 let quiz=null;
 const conf=[];
 const rpick=a=>a[Math.floor(rnd()*a.length)];
 
 function openQuiz(){
   if(quiz||settingsOpen) return;
-  const mode=rnd()<0.5?'letter':'picture';
+  const mode=(quizMode==='mixed'&&rnd()<0.5)?'picture':'letter';
   const item=rpick(QUIZ_ITEMS), L=item.w[0];
   let choices;
   if(mode==='letter'){
@@ -1263,20 +1266,24 @@ function openQuiz(){
   quiz={mode,item,letter:L,choices,sel:0,done:false,doneT:0,shake:0,wrong:-1};
   conf.length=0;
   SFX.click();
-  say(mode==='letter' ? 'What letter does '+item.w.toLowerCase()+' start with?'
+  say(mode==='letter' ? 'What does '+item.w.toLowerCase()+' start with?'
                       : 'Which one starts with the letter '+L+'?');
 }
 function closeQuiz(){ quiz=null; conf.length=0; }
 function repeatQuiz(){
   if(!quiz||quiz.done) return;
   say(quiz.mode==='letter'
-    ? 'What letter does '+quiz.item.w.toLowerCase()+' start with?'
+    ? 'What does '+quiz.item.w.toLowerCase()+' start with?'
     : 'Which one starts with the letter '+quiz.letter+'?');
 }
 function moveQuiz(d){
   if(!quiz||quiz.done) return;
   quiz.sel=(quiz.sel+d+quiz.choices.length)%quiz.choices.length;
   SFX.click();
+  // say each option as it is landed on, so the letter shapes do not have to
+  // be known yet -- the child can match by sound instead
+  const c=quiz.choices[quiz.sel];
+  say(quiz.mode==='letter' ? c.letter : c.item.w.toLowerCase());
 }
 function answerQuiz(){
   if(!quiz||quiz.done) return;
@@ -1316,16 +1323,34 @@ function drawQuiz(){
   const x=(cw-w)/2, y=(ch-h)/2;
   g.fillStyle='#fffdf7'; roundRect(g,x,y,w,h,u*0.04); g.fill();
 
-  g.textAlign='center'; g.textBaseline='middle';
-  g.fillStyle='#43506b';
-  g.font='800 '+Math.round(h*0.058)+'px system-ui,sans-serif';
-  g.fillText(quiz.mode==='letter'?'WHAT LETTER DOES IT START WITH?'
-                                 :'WHICH ONE STARTS WITH', cw/2, y+h*0.095);
+  g.textBaseline='middle';
+  const qy=y+h*0.10;
+  if(quiz.mode==='letter'){
+    // "WHAT DOES TREE START WITH?" with the word picked out, shrunk to fit
+    const pre='WHAT DOES ', word=quiz.item.w, post=' START WITH?';
+    let fs=h*0.058;
+    const setF=()=>g.font='800 '+Math.round(fs)+'px system-ui,sans-serif';
+    setF();
+    let total=g.measureText(pre+word+post).width;
+    const maxW=w*0.88;
+    if(total>maxW){ fs*=maxW/total; setF(); total=g.measureText(pre+word+post).width; }
+    g.textAlign='left';
+    let tx=cw/2-total/2;
+    g.fillStyle='#43506b'; g.fillText(pre,tx,qy);  tx+=g.measureText(pre).width;
+    g.fillStyle='#7c4ddb'; g.fillText(word,tx,qy); tx+=g.measureText(word).width;
+    g.fillStyle='#43506b'; g.fillText(post,tx,qy);
+  }else{
+    g.textAlign='center';
+    g.fillStyle='#43506b';
+    g.font='800 '+Math.round(h*0.058)+'px system-ui,sans-serif';
+    g.fillText('WHICH ONE STARTS WITH', cw/2, qy);
+  }
+  g.textAlign='center';
 
   g.save();
-  g.translate(cw/2, y+h*(quiz.mode==='letter'?0.32:0.38));
+  g.translate(cw/2, y+h*0.38);
   if(quiz.mode==='letter'){
-    const k=(h*0.15)/30*quiz.item.s;
+    const k=(h*0.19)/30*quiz.item.s;
     g.save(); g.scale(k,k); quiz.item.art(); g.restore();
   }else{
     g.fillStyle='#7c4ddb';
@@ -1334,13 +1359,6 @@ function drawQuiz(){
     g.fillText(quiz.letter,0,0);
   }
   g.restore();
-
-  if(quiz.mode==='letter'){
-    g.textAlign='center'; g.textBaseline='middle';
-    g.fillStyle='#7c4ddb';
-    g.font='800 '+Math.round(h*0.082)+'px system-ui,sans-serif';
-    g.fillText(quiz.item.w, cw/2, y+h*0.52);
-  }
 
   const cardW=w*0.25, cardH=h*0.235, gap=w*0.045;
   const total=cardW*3+gap*2, sx=x+(w-total)/2, cy=y+h*0.74;
@@ -1397,6 +1415,15 @@ const SETTINGS=[
     ],
     get:()=>driveMode,
     set:v=>{ driveMode=v; try{ localStorage.setItem('roundtown.drive',v); }catch(_){} },
+  },
+  {
+    id:'quiz', label:'QUESTIONS',
+    options:[
+      {v:'letters', name:'LETTERS ONLY', hint:'Shows a thing and asks what letter it starts with.'},
+      {v:'mixed',   name:'MIXED',        hint:'Also asks which picture starts with a letter. Harder.'},
+    ],
+    get:()=>quizMode,
+    set:v=>{ quizMode=v; try{ localStorage.setItem('roundtown.quiz',v); }catch(_){} },
   },
   {
     id:'voice', label:'TALKING',

@@ -142,11 +142,13 @@ way `sirenSample` works.
 Purple **?** pads are scattered around the town, roughly one every five blocks.
 Drive onto one and it asks a question. The world pauses while it is up.
 
-Questions come in two shapes, picked at random:
+It names the thing and asks for its first letter — *"What does **TREE** start
+with?"* — with a big picture of it and three letters to choose from.
 
-- **Picture to letter** — shows a pond and asks what letter it starts with.
-- **Letter to picture** — shows a **C** and asks which of three pictures starts
-  with it.
+The other direction (showing a letter and asking which of three pictures starts
+with it) is harder: it needs every picture named and its initial worked out, all
+held in mind at once. It is off by default. Turn it on with the **QUESTIONS**
+row in settings once that gets easy.
 
 Everything asked about is drawn from artwork already in the world — cow, duck,
 chicken, tree, ball, cone, bird, car, truck, ambulance, house, barn, pond — so a
@@ -159,8 +161,9 @@ over as many times as they like — it re-arms once you have driven off it, and
 picks a fresh question each time.
 
 Questions are read aloud through the browser's speech synthesis, which matters a
-lot before a child can read. **Y** (or **R** on a keyboard) repeats the
-question. If speech is unavailable the game carries on silently; turn it off
+lot before a child can read. **Each option is also spoken as it is highlighted**,
+so the letter shapes do not have to be known yet — a child can scroll along and
+match by sound. **Y** (or **R** on a keyboard) repeats the question. If speech is unavailable the game carries on silently; turn it off
 deliberately with the **TALKING** row in settings.
 
 Add more things to ask about by appending to `QUIZ_ITEMS`: a word, a scale `s`
