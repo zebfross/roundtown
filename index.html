@@ -7,7 +7,8 @@
 <style>
   html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#4b8f43;
     -webkit-user-select:none;user-select:none;touch-action:none;cursor:none;}
-  canvas{display:block;width:100vw;height:100vh;}
+  #c{display:block;width:100vw;height:100vh;}
+  #tk{display:block;width:min(42vw,320px);height:auto;}
   #start{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;
     justify-content:center;gap:2.2vh;background:#5aa0e8;color:#fff;
     font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif;text-align:center;z-index:10;}
@@ -15,6 +16,7 @@
     text-shadow:0 .45vh 0 #2b6bb0,0 1.2vh 2.4vh rgba(0,0,0,.35);}
   #start p{margin:0;font-size:min(4.2vw,2.1rem);font-weight:700;opacity:.95;}
   #start .blink{animation:b 1.15s ease-in-out infinite;}
+  #start .sub{font-size:min(2.4vw,1.05rem);font-weight:600;opacity:.62;margin-top:-.6vh;}
   @keyframes b{0%,100%{opacity:1}50%{opacity:.35}}
   #start.gone{display:none;}
 </style>
@@ -25,6 +27,7 @@
   <h1>ROUND TOWN</h1>
   <canvas id="tk" width="360" height="200"></canvas>
   <p class="blink">PRESS ANY BUTTON</p>
+  <p class="sub">Menu button, or Esc, for settings</p>
 </div>
 <script>
 'use strict';
@@ -245,6 +248,8 @@ try{
   if(q) localStorage.setItem('roundtown.drive',q);
 }catch(_){}
 
+let settingsOpen=false, settingsRow=0;
+
 let inputKind='key';       // 'key' | 'pad' | 'ps' -- whichever was used last
 function padKind(p){
   return /dualsense|dualshock|playstation|sony|054c/i.test(p.id||'') ? 'ps' : 'pad';
@@ -256,6 +261,15 @@ let started=false;
 addEventListener('keydown',e=>{
   keys[e.code]=true; inputKind='key'; onAnyInput();
   if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
+  if(settingsOpen){
+    if(e.code==='ArrowUp')    moveSettings(-1);
+    if(e.code==='ArrowDown')  moveSettings(1);
+    if(e.code==='ArrowLeft')  cycleSetting(settingsRow,-1);
+    if(e.code==='ArrowRight'||e.code==='Enter'||e.code==='Space') cycleSetting(settingsRow,1);
+    if(e.code==='Escape'||e.code==='KeyO') toggleSettings(false);
+    return;                            // nothing reaches the game while open
+  }
+  if(e.code==='Escape'||e.code==='KeyO') toggleSettings(true);
   if(e.code==='Space') doHorn();
   if(e.code==='KeyV') changeVehicle();
   if(/^Digit[1-5]$/.test(e.code)) setVehicle(+e.code.slice(5)-1,true);
@@ -296,10 +310,19 @@ function readPads(){
     if(act) inputKind=padKind(p);   // hints follow the device in your hands
   }
   const hit=i=>pressed[i]&&!prevBtn[i];
-  if(hit(0)) doHorn();
-  if(hit(2)) changeVehicle();
-  if(hit(3)) toggleLights();
-  if(hit(4)||hit(5)) toggleSiren();
+  if(settingsOpen){
+    if(hit(12)) moveSettings(-1);
+    if(hit(13)) moveSettings(1);
+    if(hit(14)) cycleSetting(settingsRow,-1);
+    if(hit(15)||hit(0)) cycleSetting(settingsRow,1);
+    if(hit(1)||hit(8)||hit(9)) toggleSettings(false);
+  }else{
+    if(hit(0)) doHorn();
+    if(hit(2)) changeVehicle();
+    if(hit(3)) toggleLights();
+    if(hit(4)||hit(5)) toggleSiren();
+    if(hit(8)||hit(9)) toggleSettings(true);    // View / Menu
+  }
   if(pressed.some(Boolean)||Math.hypot(x,y)>DEADZONE) onAnyInput();
   prevBtn=pressed;
   const k=readKeys();
@@ -502,10 +525,12 @@ function burst(x,y,col,n){
 /* ============================== update ============================== */
 let evictTimer=0;
 
-function update(dt){
+function pollInput(){
   const inp=readPads();
   IN.x=inp.x; IN.y=inp.y; IN.boost=inp.boost; IN.rev=inp.rev;
+}
 
+function update(dt){
   const maxv=MAXV*V.speed;
 
   if(driveMode==='turn'){
@@ -747,6 +772,7 @@ function draw(){
   g.restore();
 
   drawHUD();
+  if(settingsOpen) drawSettings();
 }
 
 function drawBeams(alpha){
@@ -1083,13 +1109,102 @@ function drawHUD(){
   g.textAlign='left'; g.textBaseline='alphabetic';
 }
 
+/* ============================ settings ============================
+   For the grown-up, not the child: opened with View/Menu on a controller or
+   Esc on a keyboard, and it pauses the world while it is up. Add a row here
+   and it appears on screen with no other changes needed. */
+const SETTINGS=[
+  {
+    id:'drive', label:'DRIVING',
+    options:[
+      {v:'turn',  name:'THRUST & STEER', hint:'Up and down drive. Left and right steer.'},
+      {v:'point', name:'POINT & GO',     hint:'Push the stick the way you want to go.'},
+    ],
+    get:()=>driveMode,
+    set:v=>{ driveMode=v; try{ localStorage.setItem('roundtown.drive',v); }catch(_){} },
+  },
+];
+
+const SETTINGS_FOOT={
+  pad:'D-PAD  CHOOSE          A  CHANGE          B  CLOSE',
+  ps :'D-PAD  CHOOSE          X  CHANGE          O  CLOSE',
+  key:'ARROWS  CHOOSE          ENTER  CHANGE          ESC  CLOSE',
+};
+
+function toggleSettings(open){
+  const want = open===undefined ? !settingsOpen : open;
+  if(want===settingsOpen) return;
+  settingsOpen=want;
+  if(settingsOpen) settingsRow=0;
+  if(started) SFX.click();
+}
+function moveSettings(d){
+  settingsRow=(settingsRow+d+SETTINGS.length)%SETTINGS.length;
+  SFX.click();
+}
+function cycleSetting(i,dir){
+  const s=SETTINGS[i]; if(!s) return;
+  const cur=Math.max(0,s.options.findIndex(o=>o.v===s.get()));
+  s.set(s.options[(cur+dir+s.options.length)%s.options.length].v);
+  SFX.click();
+}
+
+function drawSettings(){
+  const u=Math.min(cw,ch);
+  g.fillStyle='rgba(8,16,38,.80)'; g.fillRect(0,0,cw,ch);
+
+  const w=Math.min(cw*0.82,760), rowH=u*0.135;
+  const h=Math.min(ch*0.8, u*0.22+SETTINGS.length*rowH+u*0.14);
+  const x=(cw-w)/2, y=(ch-h)/2;
+  g.fillStyle='#f7f5ef'; roundRect(g,x,y,w,h,u*0.035); g.fill();
+
+  g.textAlign='left'; g.textBaseline='middle';
+  g.fillStyle='#2b3b52';
+  g.font='800 '+Math.round(u*0.055)+'px system-ui,sans-serif';
+  g.fillText('SETTINGS', x+u*0.06, y+u*0.075);
+
+  SETTINGS.forEach((s,i)=>{
+    const ry=y+u*0.145+i*rowH+rowH/2;
+    const sel=i===settingsRow;
+    if(sel){
+      g.fillStyle='#dfe9f5';
+      roundRect(g,x+u*0.035,ry-rowH*0.44,w-u*0.07,rowH*0.88,u*0.018); g.fill();
+    }
+    const opt=s.options.find(o=>o.v===s.get())||s.options[0];
+    g.fillStyle='#5b6b80';
+    g.font='700 '+Math.round(u*0.032)+'px system-ui,sans-serif';
+    g.fillText(s.label, x+u*0.06, ry-rowH*0.30);
+    g.fillStyle='#1d64c4';
+    g.font='800 '+Math.round(u*0.042)+'px system-ui,sans-serif';
+    g.fillText(opt.name, x+u*0.06, ry+rowH*0.01);
+    // arrows showing the value can be changed
+    g.fillStyle=sel?'#1d64c4':'#b9c3d1';
+    g.font='800 '+Math.round(u*0.042)+'px system-ui,sans-serif';
+    g.textAlign='right';
+    g.fillText('\u2039  \u203a', x+w-u*0.06, ry);
+    g.textAlign='left';
+    if(sel){
+      g.fillStyle='#7a8798';
+      g.font='500 '+Math.round(u*0.026)+'px system-ui,sans-serif';
+      g.fillText(opt.hint, x+u*0.06, ry+rowH*0.34);
+    }
+  });
+
+  g.fillStyle='#8b96a5';
+  g.font='700 '+Math.round(u*0.026)+'px system-ui,sans-serif';
+  g.textAlign='center';
+  g.fillText(SETTINGS_FOOT[inputKind]||SETTINGS_FOOT.pad, cw/2, y+h-u*0.055);
+  g.textAlign='left'; g.textBaseline='alphabetic';
+}
+
 /* ============================== loop ============================== */
 let last=performance.now();
 function frame(now){
   const dt=Math.min(0.05,(now-last)/1000);
   last=now;
   refreshCells();
-  if(started) update(dt); else readPads();   // poll pads on the start screen too
+  pollInput();                               // also on the start screen and in settings
+  if(started&&!settingsOpen) update(dt);     // settings pauses the world
   draw();
   requestAnimationFrame(frame);
 }

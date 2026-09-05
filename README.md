@@ -46,8 +46,18 @@ Two systems, because which one suits a small child is not obvious:
   to face there and drives. Fewer things to coordinate, but awkward for precise
   nudging.
 
-Swap without a redeploy by adding `?drive=point` or `?drive=turn` to the URL.
-The choice is saved, so it sticks until changed again.
+Switch between them on the **settings screen** — press the **Menu** or **View**
+button on a controller, or **Esc** on a keyboard. It pauses the world while it
+is open, and nothing reaches the game underneath, so a stray press cannot honk
+or change vehicle while you are in there. Close with **B** / **Menu** / **Esc**.
+
+`?drive=point` or `?drive=turn` on the URL still works, and either way the
+choice is saved until changed again.
+
+Adding another setting is one entry in the `SETTINGS` array — give it a `label`,
+a list of `options` with a `name` and `hint` each, and a `get`/`set` pair. It
+renders and becomes navigable with no other changes. A sound on/off row would be
+the obvious next one.
 
 Reverse is 75% of forward thrust and capped at half top speed. `TURN` at the top
 of the script is the steering rate in radians/sec.
