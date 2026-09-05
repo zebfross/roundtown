@@ -14,7 +14,8 @@ works from the HTML file alone.
 
 | Input | Does |
 | --- | --- |
-| Left stick / D-pad | Point it where you want to go. It turns and drives that way. |
+| Left stick / D-pad **up** / **down** | Drive forwards / backwards |
+| Left stick / D-pad **left** / **right** | Steer, and it turns on the spot when stopped |
 | **A** | Honk |
 | **X** | Change vehicle |
 | **Y** | Headlights — toggles the town between day and night |
@@ -32,6 +33,24 @@ reveals gamepads after a button press, so it starts on keyboard and flips the
 instant a controller is touched -- on the Xbox that happens before the HUD is
 ever seen. An idle connected pad does not steal the hints back from the
 keyboard; only actual input switches them.
+
+### Movement
+
+Two systems, because which one suits a small child is not obvious:
+
+- **`turn`** (default) — up and down are forward and backward thrust, left and
+  right steer. Steering works at a standstill, so it can always be pointed at
+  something without having to be moving first. Much easier for lining up on a
+  duck and shoving it into a pond.
+- **`point`** — the original. Push the stick the way you want to go and it turns
+  to face there and drives. Fewer things to coordinate, but awkward for precise
+  nudging.
+
+Swap without a redeploy by adding `?drive=point` or `?drive=turn` to the URL.
+The choice is saved, so it sticks until changed again.
+
+Reverse is 75% of forward thrust and capped at half top speed. `TURN` at the top
+of the script is the steering rate in radians/sec.
 
 ## Running it on the Xbox
 

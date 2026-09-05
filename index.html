@@ -36,6 +36,7 @@ const VIEW_H  = 500;       // world units visible vertically (zoomed in for TV v
 const MAXV    = 345;       // truck top speed (units/sec)
 const ACCEL   = 430;
 const DEADZONE= 0.22;
+const TURN    = 2.6;       // radians/sec when steering left or right
 const KEEP    = 6;         // cells kept loaded either side of the truck before eviction
 
 /* Recorded sounds. Each falls back to the synthesised version in SFX if the
@@ -232,6 +233,18 @@ function sirenOff(){
 
 /* ============================== input ============================== */
 const IN={x:0,y:0,boost:0,rev:0};
+/* Two movement systems. 'turn' is up/down thrust with left/right steering,
+   which makes it much easier to line up on something and nudge it. 'point'
+   is the original: shove the stick the way you want to go and it heads there.
+   Switch with ?drive=point or ?drive=turn on the URL; the choice sticks. */
+let driveMode='turn';
+try{
+  const q=new URLSearchParams(location.search).get('drive');
+  const m=q||localStorage.getItem('roundtown.drive');
+  if(m==='point'||m==='turn') driveMode=m;
+  if(q) localStorage.setItem('roundtown.drive',q);
+}catch(_){}
+
 let inputKind='key';       // 'key' | 'pad' | 'ps' -- whichever was used last
 function padKind(p){
   return /dualsense|dualshock|playstation|sony|054c/i.test(p.id||'') ? 'ps' : 'pad';
@@ -493,22 +506,35 @@ function update(dt){
   const inp=readPads();
   IN.x=inp.x; IN.y=inp.y; IN.boost=inp.boost; IN.rev=inp.rev;
 
-  // --- steering: push the stick where you want to go, the truck turns and drives.
-  const mag=Math.min(1,Math.hypot(IN.x,IN.y));
-  if(mag>DEADZONE){
-    const target=Math.atan2(IN.y,IN.x);
-    const d=angDiff(target,truck.a);
-    const slow=1-clamp(Math.abs(truck.v)/(MAXV*V.speed),0,1);
-    const rate=2.5+slow*1.6;                       // easier to turn when nearly stopped
-    truck.a+=clamp(d,-rate*dt,rate*dt);
-    const align=Math.max(0,Math.cos(d));           // no sideways lurching
-    truck.v+=mag*align*ACCEL*V.speed*(1+IN.boost*0.35)*dt;
+  const maxv=MAXV*V.speed;
+
+  if(driveMode==='turn'){
+    // up/down drive, left/right steer. Steering works even at a standstill so
+    // it can always be pointed at something without having to be moving first.
+    const dz=v=>Math.abs(v)<0.2?0:v;
+    const tx=dz(IN.x), ty=dz(IN.y);
+    if(tx) truck.a+=tx*TURN*dt;
+    if(ty){
+      const fwd=ty<0;                              // stick/D-pad up = forwards
+      truck.v+=-ty*ACCEL*V.speed*(fwd?(1+IN.boost*0.35):0.75)*dt;
+    }
+  }else{
+    // push the stick the way you want to go and it turns to face there
+    const mag=Math.min(1,Math.hypot(IN.x,IN.y));
+    if(mag>DEADZONE){
+      const target=Math.atan2(IN.y,IN.x);
+      const d=angDiff(target,truck.a);
+      const slow=1-clamp(Math.abs(truck.v)/maxv,0,1);
+      const rate=2.5+slow*1.6;                     // easier to turn when nearly stopped
+      truck.a+=clamp(d,-rate*dt,rate*dt);
+      const align=Math.max(0,Math.cos(d));         // no sideways lurching
+      truck.v+=mag*align*ACCEL*V.speed*(1+IN.boost*0.35)*dt;
+    }
   }
-  if(IN.rev>0.3) truck.v-=ACCEL*0.7*IN.rev*dt;
+  if(IN.rev>0.3) truck.v-=ACCEL*0.7*IN.rev*dt;     // LT reverses in either system
 
   truck.v*=Math.exp(-1.7*dt);
-  const maxv=MAXV*V.speed;
-  truck.v=clamp(truck.v,-maxv*0.45,maxv*(1+IN.boost*0.22));
+  truck.v=clamp(truck.v,-maxv*0.5,maxv*(1+IN.boost*0.22));
   truck.x+=Math.cos(truck.a)*truck.v*dt;
   truck.y+=Math.sin(truck.a)*truck.v*dt;
   truck.sway=Math.max(0,truck.sway-dt*3);
