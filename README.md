@@ -143,17 +143,39 @@ Purple **?** pads are scattered around the town, roughly one every five blocks.
 Drive onto one and it asks a question. The world pauses while it is up.
 
 It names the thing and asks for its first letter — *"What does **TREE** start
-with?"* — with a big picture of it and three letters to choose from.
+with?"* — with a big picture of it and a few letters to choose from.
 
-The other direction (showing a letter and asking which of three pictures starts
-with it) is harder: it needs every picture named and its initial worked out, all
-held in mind at once. It is off by default. Turn it on with the **QUESTIONS**
-row in settings once that gets easy.
+### Difficulty moves with them
+
+Five steps. It starts at the first and only moves up after **4 right in a row,
+first try**; a wrong answer resets that streak, and **3 wrong** at a step eases
+quietly back down. None of this is shown to the child — no level, no score, no
+announcement. The current step is saved, so it picks up where they left off.
+
+| Step | Answers | Words | Question |
+| --- | --- | --- | --- |
+| 1 | 2 | up to 4 letters | picture → letter |
+| 2 | 3 | up to 4 letters | picture → letter |
+| 3 | 3 | up to 5 letters | picture → letter |
+| 4 | 3 | any | picture → letter |
+| 5 | 3 | any | both directions |
+
+Steps 1 and 2 also avoid distractor letters whose **names rhyme** with the
+answer. Said out loud, B C D E G P T V Z all sound alike, which is exactly the
+confusion to keep out of the way while a child is matching by ear rather than by
+shape.
+
+The last step adds the harder direction: showing a letter and asking which of
+three pictures starts with it, which needs every picture named and its initial
+worked out while holding the letter in mind.
+
+The **QUESTIONS** row in settings picks between *grows with them* (default),
+*always easiest*, and *always hardest*, and shows which step they are on.
 
 Everything asked about is drawn from artwork already in the world — cow, duck,
 chicken, tree, ball, cone, bird, car, truck, ambulance, house, barn, pond — so a
-child who cannot read yet still knows what they are looking at. Three choices,
-always one right answer and two distractors with different first letters.
+child who cannot read yet still knows what they are looking at. There is always
+exactly one right answer, and no two options share a first letter.
 
 **There is no losing.** A wrong pick wobbles the card, makes a soft noise and
 asks again. Nothing is scored, nothing is counted, and the pad can be driven

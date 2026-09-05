@@ -1199,7 +1199,7 @@ function vehArt(id){
   g.restore();
 }
 function boxArt(col,roof){
-  g.fillStyle='rgba(0,0,0,.18)'; roundRect(g,-24,-19,56,48,8); g.fill();
+  g.fillStyle='rgba(0,0,0,.13)'; roundRect(g,-25,-21,56,48,8); g.fill();
   g.fillStyle=col;              roundRect(g,-28,-24,56,48,8); g.fill();
   g.fillStyle=roof;             g.fillRect(-22,-4,44,8);
 }
@@ -1232,43 +1232,95 @@ const QUIZ_FOOT={
   key:'ARROWS  CHOOSE       ENTER  PICK       R  SAY AGAIN       ESC  DRIVE ON',
 };
 
-let quizMode='letters';     // 'letters' = always picture -> letter (easier)
-try{ if(localStorage.getItem('roundtown.quiz')==='mixed') quizMode='mixed'; }catch(_){}
+/* Difficulty ladder. Rung 1 is two choices, short words, and distractor
+   letters whose *names* do not rhyme with the answer -- B/C/D/E/G/P/T all
+   sound alike said aloud, which matters when the child is matching by ear.
+   Later rungs add a third choice, longer words, then the harder direction. */
+const LEVELS=[
+  {choices:2, maxLen:4,  mixed:false, distinct:true },
+  {choices:3, maxLen:4,  mixed:false, distinct:true },
+  {choices:3, maxLen:5,  mixed:false, distinct:false},
+  {choices:3, maxLen:99, mixed:false, distinct:false},
+  {choices:3, maxLen:99, mixed:true,  distinct:false},
+];
+const UP_AFTER=4;      // consecutive first-try correct answers to move up
+const DOWN_AFTER=3;    // wrong answers at a rung before easing back down
+
+const LETTER_GROUP={};
+'BCDEGPTVZ'.split('').forEach(c=>LETTER_GROUP[c]='ee');
+'AHJK'.split('').forEach(c=>LETTER_GROUP[c]='ay');
+'FLMNSX'.split('').forEach(c=>LETTER_GROUP[c]='eh');
+
+let quizMode='auto';   // 'auto' grows with them | 'easy' locked low | 'hard' locked high
+let quizLevel=0, quizStreak=0, quizMiss=0;
+try{
+  const m=localStorage.getItem('roundtown.quiz');
+  if(m==='auto'||m==='easy'||m==='hard') quizMode=m;
+  quizLevel=clamp(parseInt(localStorage.getItem('roundtown.level'),10)||0,0,LEVELS.length-1);
+}catch(_){}
+function saveProgress(){
+  try{ localStorage.setItem('roundtown.level',String(quizLevel)); }catch(_){}
+}
+function levelNow(){
+  return quizMode==='easy' ? 0
+       : quizMode==='hard' ? LEVELS.length-1
+       : quizLevel;
+}
 
 let quiz=null;
 const conf=[];
 const rpick=a=>a[Math.floor(rnd()*a.length)];
 
-function openQuiz(){
-  if(quiz||settingsOpen) return;
-  const mode=(quizMode==='mixed'&&rnd()<0.5)?'picture':'letter';
-  const item=rpick(QUIZ_ITEMS), L=item.w[0];
-  let choices;
+function buildChoices(mode,item,lv){
+  const L=item.w[0], want=lv.choices-1;
+  const others=[];
+  const okLetter=c=>c!==L&&others.indexOf(c)<0&&
+                    !(lv.distinct&&LETTER_GROUP[c]&&LETTER_GROUP[c]===LETTER_GROUP[L]);
   if(mode==='letter'){
-    const others=[];
-    while(others.length<2){
+    for(let n=0;n<400&&others.length<want;n++){
+      const c=rpick(QUIZ_LETTERS); if(okLetter(c)) others.push(c);
+    }
+    for(let n=0;n<400&&others.length<want;n++){        // relax if that starved
       const c=rpick(QUIZ_LETTERS);
       if(c!==L&&others.indexOf(c)<0) others.push(c);
     }
-    choices=[{letter:L,correct:true},{letter:others[0]},{letter:others[1]}];
-  }else{
-    const others=[];
-    for(let n=0;n<300&&others.length<2;n++){
-      const it=rpick(QUIZ_ITEMS);
-      if(it.w[0]!==L&&!others.some(o=>o.w[0]===it.w[0])) others.push(it);
-    }
-    choices=[{item,correct:true},{item:others[0]},{item:others[1]}];
+    return [{letter:L,correct:true}].concat(others.map(c=>({letter:c})));
   }
+  const pool=QUIZ_ITEMS.filter(i=>i.w.length<=lv.maxLen);
+  const taken=[];
+  const okItem=it=>it.w[0]!==L&&taken.indexOf(it.w[0])<0&&
+                   !(lv.distinct&&LETTER_GROUP[it.w[0]]&&
+                     LETTER_GROUP[it.w[0]]===LETTER_GROUP[L]);
+  const picks=[];
+  for(let n=0;n<400&&picks.length<want;n++){
+    const it=rpick(pool.length?pool:QUIZ_ITEMS);
+    if(okItem(it)){ picks.push(it); taken.push(it.w[0]); }
+  }
+  for(let n=0;n<400&&picks.length<want;n++){
+    const it=rpick(QUIZ_ITEMS);
+    if(it.w[0]!==L&&taken.indexOf(it.w[0])<0){ picks.push(it); taken.push(it.w[0]); }
+  }
+  return [{item,correct:true}].concat(picks.map(it=>({item:it})));
+}
+
+function openQuiz(){
+  if(quiz||settingsOpen) return;
+  const lv=LEVELS[levelNow()];
+  const mode=(lv.mixed&&rnd()<0.5)?'picture':'letter';
+  const pool=QUIZ_ITEMS.filter(i=>i.w.length<=lv.maxLen);
+  const item=rpick(pool.length?pool:QUIZ_ITEMS), L=item.w[0];
+  const choices=buildChoices(mode,item,lv);
   for(let i=choices.length-1;i>0;i--){
     const j=Math.floor(rnd()*(i+1));
     const t=choices[i]; choices[i]=choices[j]; choices[j]=t;
   }
-  quiz={mode,item,letter:L,choices,sel:0,done:false,doneT:0,shake:0,wrong:-1};
+  quiz={mode,item,letter:L,choices,sel:0,done:false,doneT:0,shake:0,wrong:-1,missed:false};
   conf.length=0;
   SFX.click();
   say(mode==='letter' ? 'What does '+item.w.toLowerCase()+' start with?'
                       : 'Which one starts with the letter '+L+'?');
 }
+
 function closeQuiz(){ quiz=null; conf.length=0; }
 function repeatQuiz(){
   if(!quiz||quiz.done) return;
@@ -1293,9 +1345,20 @@ function answerQuiz(){
     SFX.yay(); confetti();
     const word=quiz.mode==='letter'?quiz.item.w:c.item.w;
     say('Yes! '+word.toLowerCase()+' starts with '+quiz.letter);
+    // only a first-try answer counts towards moving up
+    if(quizMode==='auto'&&!quiz.missed){
+      quizStreak++; quizMiss=0;
+      if(quizStreak>=UP_AFTER&&quizLevel<LEVELS.length-1){ quizLevel++; quizStreak=0; }
+      saveProgress();
+    }
   }else{
-    quiz.shake=0.5; quiz.wrong=quiz.sel;
+    quiz.shake=0.5; quiz.wrong=quiz.sel; quiz.missed=true;
     SFX.nope(); say('Try again');
+    if(quizMode==='auto'){
+      quizStreak=0; quizMiss++;
+      if(quizMiss>=DOWN_AFTER&&quizLevel>0){ quizLevel--; quizMiss=0; }
+      saveProgress();
+    }
   }
 }
 function confetti(){
@@ -1360,8 +1423,9 @@ function drawQuiz(){
   }
   g.restore();
 
-  const cardW=w*0.25, cardH=h*0.235, gap=w*0.045;
-  const total=cardW*3+gap*2, sx=x+(w-total)/2, cy=y+h*0.74;
+  const n=quiz.choices.length, gap=w*0.045;
+  const cardW=Math.min(w*0.3,(w*0.9-gap*(n-1))/n), cardH=h*0.235;
+  const total=cardW*n+gap*(n-1), sx=x+(w-total)/2, cy=y+h*0.74;
   quiz.choices.forEach((c,i)=>{
     const sel=i===quiz.sel, good=quiz.done&&c.correct;
     const bad=quiz.wrong===i&&quiz.shake>0;
@@ -1419,8 +1483,13 @@ const SETTINGS=[
   {
     id:'quiz', label:'QUESTIONS',
     options:[
-      {v:'letters', name:'LETTERS ONLY', hint:'Shows a thing and asks what letter it starts with.'},
-      {v:'mixed',   name:'MIXED',        hint:'Also asks which picture starts with a letter. Harder.'},
+      {v:'auto', name:'GROWS WITH THEM',
+       hint:()=>'Short words and two answers to start. On step '+
+                (quizLevel+1)+' of '+LEVELS.length+'.'},
+      {v:'easy', name:'ALWAYS EASIEST',
+       hint:'Two answers, short words, letters that sound different.'},
+      {v:'hard', name:'ALWAYS HARDEST',
+       hint:'Every word, three answers, both question directions.'},
     ],
     get:()=>quizMode,
     set:v=>{ quizMode=v; try{ localStorage.setItem('roundtown.quiz',v); }catch(_){} },
@@ -1499,7 +1568,16 @@ function drawSettings(){
     if(sel){
       g.fillStyle='#7a8798';
       g.font='500 '+Math.round(u*0.026)+'px system-ui,sans-serif';
-      g.fillText(opt.hint, x+u*0.06, ry+rowH*0.34);
+      const ht=typeof opt.hint==='function'?opt.hint():opt.hint;
+      let hf=u*0.026;
+      const room=w-u*0.12;
+      g.font='500 '+Math.round(hf)+'px system-ui,sans-serif';
+      const hw=g.measureText(ht).width;
+      if(hw>room){
+        hf*=room/hw;
+        g.font='500 '+Math.round(hf)+'px system-ui,sans-serif';
+      }
+      g.fillText(ht, x+u*0.06, ry+rowH*0.34);
     }
   });
 
