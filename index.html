@@ -253,7 +253,12 @@ try{
 
 let settingsOpen=false, settingsRow=0;
 
-let inputKind='key';       // 'key' | 'pad' | 'ps' -- whichever was used last
+/* Edge on Xbox delivers the D-pad as gamepad buttons AND as synthesised arrow
+   keys, and key-repeat kept winning the "last input" race, so the hints showed
+   keycaps on a console. On Xbox the controller is the only input there is. */
+const IS_XBOX=/xbox/i.test(navigator.userAgent||'');
+let inputKind=IS_XBOX?'pad':'key';   // 'key' | 'pad' | 'ps'
+const recentKeys=[];
 function padKind(p){
   return /dualsense|dualshock|playstation|sony|054c/i.test(p.id||'') ? 'ps' : 'pad';
 }
@@ -262,7 +267,10 @@ let prevBtn=[];
 let started=false;
 
 addEventListener('keydown',e=>{
-  keys[e.code]=true; inputKind='key'; onAnyInput();
+  keys[e.code]=true;
+  if(!IS_XBOX&&!e.repeat) inputKind='key';
+  if(!e.repeat){ recentKeys.unshift(e.code); recentKeys.length=Math.min(recentKeys.length,5); }
+  onAnyInput();
   if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
   if(quiz){
     if(e.code==='ArrowLeft')  moveQuiz(-1);
@@ -306,8 +314,15 @@ function readPads(){
   for(const p of pads){
     if(!p) continue;
     let act=false;
-    const ax=p.axes[0]||0, ay=p.axes[1]||0;
-    if(Math.hypot(ax,ay)>DEADZONE){ x+=ax; y+=ay; act=true; }
+    // either stick drives -- a small child grabs whichever is under their thumb,
+    // and it also covers controllers that report the sticks on other axis pairs
+    let sx=0,sy=0,best=0;
+    for(const pair of [[0,1],[2,3]]){
+      const vx=p.axes[pair[0]]||0, vy=p.axes[pair[1]]||0;
+      const m=Math.hypot(vx,vy);
+      if(m>DEADZONE&&m>best){ best=m; sx=vx; sy=vy; }
+    }
+    if(best>0){ x+=sx; y+=sy; act=true; }
     const b=p.buttons;
     const down=i=>b[i]&&(b[i].pressed||b[i].value>0.5);
     if(down(14)) x-=1;
@@ -318,7 +333,8 @@ function readPads(){
     if(b[6]) rev  =Math.max(rev,  b[6].value||(b[6].pressed?1:0));
     for(let i=0;i<b.length;i++) if(down(i)){ pressed[i]=true; act=true; }
     if(boost>0.2||rev>0.2) act=true;
-    if(act) inputKind=padKind(p);   // hints follow the device in your hands
+    if(act&&!IS_XBOX) inputKind=padKind(p);   // hints follow the device in hand
+    if(act&&IS_XBOX)  inputKind=padKind(p);
   }
   const hit=i=>pressed[i]&&!prevBtn[i];
   if(quiz){
@@ -808,6 +824,7 @@ function draw(){
   g.restore();
 
   drawHUD();
+  if(showInput) drawInputInfo();
   if(quiz) drawQuiz();
   if(settingsOpen) drawSettings();
 }
@@ -1466,6 +1483,45 @@ function drawQuiz(){
   g.textAlign='left'; g.textBaseline='alphabetic';
 }
 
+/* A readout of what the page is actually receiving from the controller.
+   Turned on from settings. Exists because console browsers vary in what
+   they pass through to a page, and guessing from a description is slow. */
+let showInput=false;
+try{ if(localStorage.getItem('roundtown.diag')==='on') showInput=true; }catch(_){}
+
+function drawInputInfo(){
+  const u=Math.min(cw,ch), pad=u*0.055;
+  const fs=Math.max(11,u*0.022), lh=fs*1.45;
+  const pads=navigator.getGamepads?[...navigator.getGamepads()].filter(Boolean):[];
+  const lines=[];
+  lines.push('user agent xbox: '+(IS_XBOX?'yes':'no')+'    hints: '+inputKind);
+  lines.push('gamepads seen: '+pads.length);
+  pads.forEach((p,i)=>{
+    lines.push(' ['+i+'] '+String(p.id||'?').slice(0,44));
+    lines.push('     mapping: '+(p.mapping||'(none)')+'   axes: '+p.axes.length+
+               '   buttons: '+p.buttons.length);
+    const ax=[...p.axes].map((v,n)=>n+':'+v.toFixed(2)).join('  ');
+    lines.push('     '+(ax||'(no axes)'));
+    const dn=[];
+    p.buttons.forEach((b,n)=>{ if(b.pressed||b.value>0.5) dn.push(n); });
+    lines.push('     pressed: '+(dn.length?dn.join(' '):'-'));
+  });
+  if(!pads.length) lines.push(' (nothing from the Gamepad API)');
+  lines.push('recent keys: '+(recentKeys.length?recentKeys.join(' '):'-'));
+  lines.push('drive x/y: '+IN.x.toFixed(2)+' / '+IN.y.toFixed(2));
+
+  g.font='600 '+Math.round(fs)+'px ui-monospace,Menlo,Consolas,monospace';
+  g.textAlign='left'; g.textBaseline='top';
+  let wide=0;
+  for(const l of lines) wide=Math.max(wide,g.measureText(l).width);
+  const bw=wide+fs*1.6, bh=lines.length*lh+fs*1.2;
+  g.fillStyle='rgba(8,14,30,.82)';
+  roundRect(g,pad,pad,bw,bh,fs*0.6); g.fill();
+  g.fillStyle='#bfe6ff';
+  lines.forEach((l,i)=>g.fillText(l,pad+fs*0.8,pad+fs*0.6+i*lh));
+  g.textBaseline='alphabetic';
+}
+
 /* ============================ settings ============================
    For the grown-up, not the child: opened with View/Menu on a controller or
    Esc on a keyboard, and it pauses the world while it is up. Add a row here
@@ -1493,6 +1549,15 @@ const SETTINGS=[
     ],
     get:()=>quizMode,
     set:v=>{ quizMode=v; try{ localStorage.setItem('roundtown.quiz',v); }catch(_){} },
+  },
+  {
+    id:'diag', label:'CONTROLLER INFO',
+    options:[
+      {v:'off', name:'HIDDEN',  hint:'Normal play.'},
+      {v:'on',  name:'SHOWING', hint:'Shows what the controller is sending. For troubleshooting.'},
+    ],
+    get:()=>showInput?'on':'off',
+    set:v=>{ showInput=(v==='on'); try{ localStorage.setItem('roundtown.diag',v); }catch(_){} },
   },
   {
     id:'voice', label:'TALKING',

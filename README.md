@@ -14,8 +14,8 @@ works from the HTML file alone.
 
 | Input | Does |
 | --- | --- |
-| Left stick / D-pad **up** / **down** | Drive forwards / backwards |
-| Left stick / D-pad **left** / **right** | Steer, and it turns on the spot when stopped |
+| Either stick / D-pad **up** / **down** | Drive forwards / backwards |
+| Either stick / D-pad **left** / **right** | Steer, and it turns on the spot when stopped |
 | **A** | Honk |
 | **X** | Change vehicle |
 | **Y** | Headlights — toggles the town between day and night |
@@ -192,6 +192,22 @@ Add more things to ask about by appending to `QUIZ_ITEMS`: a word, a scale `s`
 to normalise its size, and an `art()` that draws it centred on the origin at
 roughly 30 units. `propArt()`, `vehArt()`, `boxArt()` and `pondArt()` are there
 to reuse the existing drawings.
+
+## When the controller misbehaves
+
+Console browsers differ in what they pass through to a page. Turn on
+**CONTROLLER INFO** in settings and a readout appears in the corner showing
+what the page is actually receiving: how many gamepads the Gamepad API reports,
+the controller's id and mapping, every axis value live, which buttons are down,
+and any key events arriving alongside them.
+
+Known quirk: **Edge on Xbox sends the D-pad as gamepad buttons *and* as
+synthesised arrow keys.** Key-repeat kept winning the "last input used" race, so
+the hints showed keycaps on a console. The user agent is checked for `Xbox` now
+and the hints stay on controller glyphs there regardless.
+
+Either analogue stick drives, which covers a child grabbing whichever is under
+their thumb and controllers that report the sticks on a different axis pair.
 
 ## The world
 
